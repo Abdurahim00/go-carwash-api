@@ -1,0 +1,8 @@
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# Build output
+/carwash-api
+/carwash-api.exe
