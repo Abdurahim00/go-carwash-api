@@ -1,5 +1,7 @@
 # Car Wash API
 
+[![CI](https://github.com/Abdurahim00/go-carwash-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdurahim00/go-carwash-api/actions/workflows/ci.yml)
+
 Small REST API built in Go to practice backend development with a stack similar to Mjuk Biltvätt's environment.
 
 ## Features

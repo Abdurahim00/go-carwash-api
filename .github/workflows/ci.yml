@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: vet & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t go-carwash-api .
+      - name: Smoke test
+        run: |
+          docker run -d --rm -p 8080:8080 --name api go-carwash-api
+          for i in $(seq 1 10); do curl -sf localhost:8080/health && break; sleep 1; done
+          curl -sf -X POST localhost:8080/washes -H 'Content-Type: application/json' \
+            -d '{"registration_number":"ABC123","wash_type":"premium"}'
+          docker stop api
