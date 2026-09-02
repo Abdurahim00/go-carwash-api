@@ -6,7 +6,7 @@ Small REST API built in Go to practice backend development with a stack similar 
 
 ## Features
 - Create wash jobs
-- List wash jobs (optionally filter by status)
+- List wash jobs (filter by status and/or registration number)
 - Get a single wash job
 - Track when each wash was created and last updated
 - Update wash status with a simple lifecycle (`queued -> in_progress -> done`, or `cancelled`)
@@ -55,6 +55,7 @@ docker run -p 8080:8080 -v carwash-data:/app/data go-carwash-api
 | `POST`   | `/washes`               | Create a wash job (status `queued`) |
 | `GET`    | `/washes`               | List all wash jobs                  |
 | `GET`    | `/washes?status=queued` | List wash jobs with a given status  |
+| `GET`    | `/washes?registration_number=ABC123` | List wash jobs for one car (normalised like on create) |
 | `GET`    | `/washes/{id}`          | Get one wash job                    |
 | `PATCH`  | `/washes/{id}/status`   | Change the status of a wash job     |
 | `DELETE` | `/washes/{id}`          | Delete a wash job                   |

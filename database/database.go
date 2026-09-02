@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"go-carwash-api/models"
@@ -114,13 +115,27 @@ func (s *Store) Create(ctx context.Context, registration, washType string) (mode
 	}, nil
 }
 
-// List returns all washes, optionally filtered by status, newest first.
-func (s *Store) List(ctx context.Context, status string) ([]models.Wash, error) {
+// ListFilter narrows a List call. Empty fields are ignored.
+type ListFilter struct {
+	Status             string
+	RegistrationNumber string
+}
+
+// List returns washes matching the filter, newest first.
+func (s *Store) List(ctx context.Context, f ListFilter) ([]models.Wash, error) {
 	query := `SELECT id, registration_number, wash_type, status, created_at, updated_at FROM washes`
+	var where []string
 	var args []any
-	if status != "" {
-		query += ` WHERE status = ?`
-		args = append(args, status)
+	if f.Status != "" {
+		where = append(where, `status = ?`)
+		args = append(args, f.Status)
+	}
+	if f.RegistrationNumber != "" {
+		where = append(where, `registration_number = ?`)
+		args = append(args, f.RegistrationNumber)
+	}
+	if len(where) > 0 {
+		query += ` WHERE ` + strings.Join(where, ` AND `)
 	}
 	query += ` ORDER BY created_at DESC, id DESC`
 

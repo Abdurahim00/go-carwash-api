@@ -66,17 +66,27 @@ func (h *WashHandler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, wash)
 }
 
-// GET /washes?status=queued
+// GET /washes?status=queued&registration_number=ABC123
 func (h *WashHandler) list(w http.ResponseWriter, r *http.Request) {
-	status := r.URL.Query().Get("status")
-	if status != "" {
-		if err := models.ValidateStatus(status); err != nil {
+	q := r.URL.Query()
+	filter := database.ListFilter{Status: q.Get("status")}
+
+	if filter.Status != "" {
+		if err := models.ValidateStatus(filter.Status); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if raw := q.Get("registration_number"); raw != "" {
+		// Same normalisation as on create, so "abc 123" finds "ABC123".
+		filter.RegistrationNumber = models.NormalizeRegistration(raw)
+		if err := models.ValidateRegistration(filter.RegistrationNumber); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 
-	washes, err := h.store.List(r.Context(), status)
+	washes, err := h.store.List(r.Context(), filter)
 	if err != nil {
 		writeInternalError(w, err)
 		return

@@ -232,3 +232,44 @@ func TestMigrateOldDatabase(t *testing.T) {
 	}
 	again.Close()
 }
+
+func TestListFilterByRegistration(t *testing.T) {
+	srv := newTestServer(t)
+
+	for _, reg := range []string{"ABC123", "XYZ789", "ABC123"} {
+		doJSON(t, http.MethodPost, srv.URL+"/washes", map[string]string{
+			"registration_number": reg,
+			"wash_type":           "basic",
+		})
+	}
+
+	// The filter is normalised the same way as on create.
+	resp, body := doJSON(t, http.MethodGet, srv.URL+"/washes?registration_number=abc%20123", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", resp.StatusCode, body)
+	}
+	var list []models.Wash
+	json.Unmarshal(body, &list)
+	if len(list) != 2 {
+		t.Fatalf("want 2 washes for ABC123, got %d", len(list))
+	}
+	for _, w := range list {
+		if w.RegistrationNumber != "ABC123" {
+			t.Errorf("unexpected wash in result: %+v", w)
+		}
+	}
+
+	// Status and registration filters combine.
+	doJSON(t, http.MethodPatch, srv.URL+"/washes/1/status", map[string]string{"status": "cancelled"})
+	_, body = doJSON(t, http.MethodGet, srv.URL+"/washes?registration_number=ABC123&status=queued", nil)
+	list = nil
+	json.Unmarshal(body, &list)
+	if len(list) != 1 || list[0].ID != 3 {
+		t.Errorf("want only wash 3 queued for ABC123, got %+v", list)
+	}
+
+	// An invalid registration in the filter is a 400, not an empty list.
+	if resp, _ := doJSON(t, http.MethodGet, srv.URL+"/washes?registration_number=A", nil); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid filter: want 400, got %d", resp.StatusCode)
+	}
+}
