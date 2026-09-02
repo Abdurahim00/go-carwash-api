@@ -34,8 +34,9 @@ jobs:
         run: docker build -t go-carwash-api .
       - name: Smoke test
         run: |
-          docker run -d --rm -p 8080:8080 --name api go-carwash-api
-          for i in $(seq 1 10); do curl -sf localhost:8080/health && break; sleep 1; done
+          docker run -d -p 8080:8080 --name api go-carwash-api
+          for i in $(seq 1 10); do curl -sf localhost:8080/health && ok=1 && break; sleep 1; done
+          if [ "$ok" != 1 ]; then echo "API never became healthy"; docker logs api; exit 1; fi
           curl -sf -X POST localhost:8080/washes -H 'Content-Type: application/json' \
             -d '{"registration_number":"ABC123","wash_type":"premium"}'
-          docker stop api
+          docker rm -f api

@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /carwash-api .
 
 # ---- runtime stage ----
 FROM alpine:3.20
-RUN adduser -D -h /app app
+RUN adduser -D -h /app app && mkdir -p /app/data && chown app:app /app/data
 WORKDIR /app
 COPY --from=build /carwash-api /usr/local/bin/carwash-api
 
