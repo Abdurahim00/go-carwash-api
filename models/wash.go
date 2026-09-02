@@ -15,6 +15,7 @@ type Wash struct {
 	WashType           string    `json:"wash_type"`
 	Status             string    `json:"status"`
 	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // Wash types a customer can order.

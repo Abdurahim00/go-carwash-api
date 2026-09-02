@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -145,6 +146,9 @@ func TestStatusLifecycle(t *testing.T) {
 		if w.Status != s {
 			t.Errorf("status after patch: want %q, got %q", s, w.Status)
 		}
+		if w.UpdatedAt.IsZero() || w.UpdatedAt.Before(w.CreatedAt) {
+			t.Errorf("updated_at (%v) should be set and not before created_at (%v)", w.UpdatedAt, w.CreatedAt)
+		}
 	}
 
 	// done is terminal.
@@ -181,4 +185,50 @@ func TestDeleteWash(t *testing.T) {
 	if resp, _ := doJSON(t, http.MethodDelete, srv.URL+"/washes/1", nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("second DELETE: want 404, got %d", resp.StatusCode)
 	}
+}
+
+// TestMigrateOldDatabase opens a database created with the first schema version
+// (no updated_at column) and checks that the store upgrades it in place.
+func TestMigrateOldDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open raw sqlite: %v", err)
+	}
+	_, err = old.Exec(`
+		CREATE TABLE washes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			registration_number TEXT NOT NULL,
+			wash_type TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'queued',
+			created_at TEXT NOT NULL
+		);
+		INSERT INTO washes (registration_number, wash_type, status, created_at)
+		VALUES ('OLD123', 'basic', 'queued', '2026-01-01T10:00:00Z');`)
+	if err != nil {
+		t.Fatalf("seed old schema: %v", err)
+	}
+	old.Close()
+
+	store, err := database.Open(path)
+	if err != nil {
+		t.Fatalf("open store on old db: %v", err)
+	}
+	defer store.Close()
+
+	w, err := store.Get(t.Context(), 1)
+	if err != nil {
+		t.Fatalf("get migrated row: %v", err)
+	}
+	if !w.UpdatedAt.Equal(w.CreatedAt) {
+		t.Errorf("updated_at should be backfilled from created_at, got %v vs %v", w.UpdatedAt, w.CreatedAt)
+	}
+
+	// Opening again must not fail or re-run the ALTER.
+	again, err := database.Open(path)
+	if err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+	again.Close()
 }

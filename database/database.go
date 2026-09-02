@@ -39,7 +39,49 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrate brings databases created by older versions of the schema up to date.
+// Each step is idempotent so it is safe to run on every start.
+func migrate(db *sql.DB) error {
+	hasUpdatedAt, err := columnExists(db, "washes", "updated_at")
+	if err != nil {
+		return err
+	}
+	if !hasUpdatedAt {
+		// SQLite cannot add a NOT NULL column without a default, so add it with a
+		// placeholder and then backfill from created_at.
+		if _, err := db.Exec(`ALTER TABLE washes ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add updated_at: %w", err)
+		}
+		if _, err := db.Exec(`UPDATE washes SET updated_at = created_at WHERE updated_at = ''`); err != nil {
+			return fmt.Errorf("backfill updated_at: %w", err)
+		}
+	}
+	return nil
+}
+
+func columnExists(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // Close releases the underlying connection.
@@ -51,9 +93,9 @@ func (s *Store) Close() error {
 func (s *Store) Create(ctx context.Context, registration, washType string) (models.Wash, error) {
 	now := time.Now().UTC().Truncate(time.Second)
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO washes (registration_number, wash_type, status, created_at)
-		 VALUES (?, ?, ?, ?)`,
-		registration, washType, models.StatusQueued, now.Format(time.RFC3339),
+		`INSERT INTO washes (registration_number, wash_type, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		registration, washType, models.StatusQueued, now.Format(time.RFC3339), now.Format(time.RFC3339),
 	)
 	if err != nil {
 		return models.Wash{}, fmt.Errorf("insert wash: %w", err)
@@ -68,12 +110,13 @@ func (s *Store) Create(ctx context.Context, registration, washType string) (mode
 		WashType:           washType,
 		Status:             models.StatusQueued,
 		CreatedAt:          now,
+		UpdatedAt:          now,
 	}, nil
 }
 
 // List returns all washes, optionally filtered by status, newest first.
 func (s *Store) List(ctx context.Context, status string) ([]models.Wash, error) {
-	query := `SELECT id, registration_number, wash_type, status, created_at FROM washes`
+	query := `SELECT id, registration_number, wash_type, status, created_at, updated_at FROM washes`
 	var args []any
 	if status != "" {
 		query += ` WHERE status = ?`
@@ -101,7 +144,7 @@ func (s *Store) List(ctx context.Context, status string) ([]models.Wash, error) 
 // Get returns a single wash by ID, or models.ErrNotFound.
 func (s *Store) Get(ctx context.Context, id int64) (models.Wash, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, registration_number, wash_type, status, created_at FROM washes WHERE id = ?`, id)
+		`SELECT id, registration_number, wash_type, status, created_at, updated_at FROM washes WHERE id = ?`, id)
 	w, err := scanWash(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return models.Wash{}, models.ErrNotFound
@@ -112,7 +155,8 @@ func (s *Store) Get(ctx context.Context, id int64) (models.Wash, error) {
 // UpdateStatus changes the status of a wash and returns the updated row.
 // The caller is responsible for validating the transition.
 func (s *Store) UpdateStatus(ctx context.Context, id int64, status string) (models.Wash, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE washes SET status = ? WHERE id = ?`, status, id)
+	now := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx, `UPDATE washes SET status = ?, updated_at = ? WHERE id = ?`, status, now, id)
 	if err != nil {
 		return models.Wash{}, fmt.Errorf("update status: %w", err)
 	}
@@ -141,14 +185,16 @@ type scanner interface {
 
 func scanWash(sc scanner) (models.Wash, error) {
 	var w models.Wash
-	var createdAt string
-	if err := sc.Scan(&w.ID, &w.RegistrationNumber, &w.WashType, &w.Status, &createdAt); err != nil {
+	var createdAt, updatedAt string
+	if err := sc.Scan(&w.ID, &w.RegistrationNumber, &w.WashType, &w.Status, &createdAt, &updatedAt); err != nil {
 		return models.Wash{}, err
 	}
-	t, err := time.Parse(time.RFC3339, createdAt)
-	if err != nil {
+	var err error
+	if w.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return models.Wash{}, fmt.Errorf("parse created_at %q: %w", createdAt, err)
 	}
-	w.CreatedAt = t
+	if w.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+		return models.Wash{}, fmt.Errorf("parse updated_at %q: %w", updatedAt, err)
+	}
 	return w, nil
 }

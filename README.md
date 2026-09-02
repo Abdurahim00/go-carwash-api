@@ -8,6 +8,7 @@ Small REST API built in Go to practice backend development with a stack similar 
 - Create wash jobs
 - List wash jobs (optionally filter by status)
 - Get a single wash job
+- Track when each wash was created and last updated
 - Update wash status with a simple lifecycle (`queued -> in_progress -> done`, or `cancelled`)
 - Delete wash jobs
 - SQLite persistence
@@ -80,7 +81,8 @@ Response `201 Created`:
   "registration_number": "ABC123",
   "wash_type": "premium",
   "status": "queued",
-  "created_at": "2026-09-02T16:30:00Z"
+  "created_at": "2026-09-02T16:30:00Z",
+  "updated_at": "2026-09-02T16:30:00Z"
 }
 ```
 
